@@ -27,7 +27,7 @@ helm install antmedia antmedia/antmedia --set origin={origin}.{example.com} --se
 ```
 
 ## Installing SSL 
-By default, a self-singed certificate comes in the Ant Media Server Kubernetes structure that you install with Helm. 
+By default, a self-signed certificate comes in the Ant Media Server Kubernetes structure that you install with Helm. 
 
 #### Custom Certificate
 you can replace it with your own certificate as below or follow the steps below for Let's Encrypt.
