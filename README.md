@@ -20,10 +20,14 @@ Ant Media Server installs the following
 
 ## Installing the Chart
 Add the AMS repository to Helm:
-```shell script
+```sh
 helm repo add antmedia https://ant-media.github.io/helm
 helm repo update
-helm install antmedia antmedia/antmedia --set origin={origin}.{example.com} --set edge={edge}.{example.com} --set licenseKey="YOUR_LICENSE_KEY" --namespace antmedia --create-namespace
+helm install antmedia antmedia/antmedia \
+  --set origin={origin}.{example.com} \
+  --set edge={edge}.{example.com} \
+  --set licenseKey="YOUR_LICENSE_KEY" \
+  --namespace antmedia --create-namespace
 ```
 
 ## Installing SSL 
@@ -143,6 +147,11 @@ helm delete antmedia -n antmedia
 
 ## Example Usage
 ```
-helm install antmedia antmedia/antmedia --set origin=origin.antmedia.io --set edge=edge.antmedia.io --set autoscalingEdge.targetCPUUtilizationPercentage=20 --set autoscalingEdge.minReplicas=2 --namespace antmedia --create-namespace
+helm install antmedia antmedia/antmedia \
+  --set origin=origin.antmedia.io \
+  --set edge=edge.antmedia.io \
+  --set autoscalingEdge.targetCPUUtilizationPercentage=20 \
+  --set autoscalingEdge.minReplicas=2 \
+  --namespace antmedia --create-namespace
 
 ```
