@@ -121,7 +121,7 @@ helm delete antmedia -n antmedia
 | `image.tag`                                        | image tag                                                                                         | `latest` |
 | `origin`                                       | Domain name of Origin server                                                                             | `{}`                                                                        |
 | `edge`                                         | Domain name of Edge server                                                                               | `{}`                                                                     |
-| `hostNetwork`                                  | If `false`, use turn server                                                                              | `true`                                                                            |
+| `hostNetwork`                                  | Use turn server if false. By default, true, which limits to one pod per node. When false, multiple pods can be run per node.                                                                             | `true`                                                                            |
 | `mongoDB`                                      | MongoDB host                                                                                             | `mongo`                                                                     |
 | `licenseKey`                                      | License key                                                                                            | `{}`                                                                     |
 | `autoscalingOrigin.targetCPUUtilizationPercentage`                            | Target CPU utilization percentage for autoscaler for Origin                                                                          | `60`                                                                               |
@@ -144,11 +144,29 @@ helm delete antmedia -n antmedia
 | `TurnPassword`                               | TURN Server Password.                                                        | `{}`                                                                               |
 
 
+## Turn Server Configuration
+
+If `hostNetwork` is set to `false`, you will need a TURN server, and coturn will be automatically deployed. Example usage is as follows:
+
+```
+helm install antmedia antmedia/antmedia \
+  --set origin={origin}.{example.com} \
+  --set edge={edge}.{example.com} \
+  --set licenseKey="YOUR_LICENSE_KEY" \
+  --set hostNetwork=false \
+  --set TurnUsername="YOUR_TURNSERVER_USERNAME" \
+  --set TurnPassword="YOUR_TURNSERVER_PASSWORD" \
+  --set TurnStunServerURL="turn:coturn" \
+  --set UseGlobalIP=false \
+  --set UseServerName=false \
+  --namespace antmedia --create-namespace
+```
+
 
 ## Example Usage
 ```
 helm install antmedia antmedia/antmedia \
-  --set origin=origin.antmedia.io \
+  --set origin=origin.antmedia.cloud \
   --set edge=edge.antmedia.io \
   --set autoscalingEdge.targetCPUUtilizationPercentage=20 \
   --set autoscalingEdge.minReplicas=2 \
