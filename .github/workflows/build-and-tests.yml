@@ -1,4 +1,4 @@
-name: Docker Image Build/Push and Development Test
+name: Ant Media Server Docker Image Build/Push and Development Test
 
 on:
   pull_request:
@@ -13,10 +13,110 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write 
+  pull-requests: write
+  repository-projects: write
+
+env:
+  GITHUB_TOKEN: ${{ secrets.G_TOKEN }}
+  REPO: ${{ github.repository }}
+  OWNER: ${{ github.repository_owner }}
+  OS_USERNAME: ${{ secrets.OS_USERNAME }}
+  OS_PASSWORD: ${{ secrets.OS_PASSWORD }}
+  OS_PROJECT_NAME: ${{ secrets.OS_PROJECT_NAME }}
+  OS_AUTH_URL: ${{ secrets.OS_AUTH_URL }}
+  OS_REGION_NAME: ${{ secrets.OS_REGION_NAME }}
+  OS_TENANT_ID: ${{ secrets.OS_TENANT_ID }}
+  OS_TENANT_NAME: ${{ secrets.OS_TENANT_NAME }}
+  OS_API_VERSION: ${{ secrets.OS_API_VERSION }}
+  OS_USER_DOMAIN_NAME: ${{ secrets.OS_USER_DOMAIN_NAME }}
+  INSTANCE_TYPE: "c3-4"
+  IMAGE_ID: "Ubuntu 24.04"
 
 jobs:
-  build-and-push:
+  setup-runner:
+    runs-on: ubuntu-latest
+    outputs:
+      server_id: ${{ steps.set-server-id.outputs.server_id }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-pip python3-dev libffi-dev libssl-dev
+        sudo pip3 install python-openstackclient
+
+    - name: server-id
+      id: set-server-id
+      run: |
+        REPO=$(echo "$REPO" | cut -d'/' -f2)
+        SERVER_ID="ci-$REPO"
+        echo "server_id=$SERVER_ID" >> $GITHUB_OUTPUT
+        
+    - name: Configure OpenStack CLI and Create Instance
+      run: |
+        echo "Setting up OpenStack CLI environment variables..."
+        export OS_USERNAME=$OS_USERNAME
+        export OS_PASSWORD=$OS_PASSWORD
+        export OS_PROJECT_NAME=$OS_PROJECT_NAME
+        export OS_AUTH_URL=$OS_AUTH_URL
+        export OS_REGION_NAME=$OS_REGION_NAME
+        export OS_USER_DOMAIN_NAME
+        export OS_API_VERSION
+        export OS_TENANT_NAME
+        export OS_TENANT_ID
+        echo "GITHUB_TOKEN=${GITHUB_TOKEN}" >> $GITHUB_ENV
+        sed -i "s/^GITHUB_TOKEN=.*$/GITHUB_TOKEN=${GITHUB_TOKEN}/" user_data.sh
+        sed -i "s|RUNNER_ORG=\"[^\"]*\"|RUNNER_ORG=\"$REPO\"|g" user_data.sh
+        SERVER_ID="${{ steps.set-server-id.outputs.server_id }}"
+        echo $SERVER_ID
+        openstack server create --flavor "$INSTANCE_TYPE" --image "$IMAGE_ID" --key-name ovh --security-group default --user-data user_data.sh --network Ext-Net $SERVER_ID
+        echo "Server creation initiated."
+ 
+        STATUS=$(openstack server show $SERVER_ID -f value -c status)
+
+        echo "Current server status: $STATUS"
+        while [[ "$STATUS" != "ACTIVE" && "$STATUS" != "ERROR" ]]; do
+          echo "Waiting for server to be ACTIVE. Current status: $STATUS"
+          sleep 10
+          STATUS=$(openstack server show $SERVER_ID -f value -c status)
+        done
+
+        if [[ "$STATUS" == "ERROR" ]]; then
+          echo "Server creation failed."
+          exit 1
+        fi
+
+    - name: Check runner status and wait if offline
+      id: check_status
+      run: |
+        RUNNER_STATUS=$(curl -s -L \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GITHUB_TOKEN" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          https://api.github.com/repos/$REPO/actions/runners | jq -r '.runners[0].status')
+        echo "Initial Runner status is: $RUNNER_STATUS"
+    
+        while [[ "$RUNNER_STATUS" != "online" ]]; do
+          echo "Runner is $RUNNER_STATUS. Waiting for 10 seconds..."
+          sleep 10
+          RUNNER_STATUS=$(curl -s -L \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/$REPO/actions/runners | jq -r '.runners[0].status')
+          echo "Runner status is: $RUNNER_STATUS"
+        done
+
+        echo "::set-output name=runner_status::$RUNNER_STATUS"
+      
+    - name: Cancel workflow if runner is still offline
+      if: steps.check_status.outputs.runner_status == 'offline'
+      run: |
+        exit 1
+
+  docker-build-and-push:
     runs-on: ubuntu-latest
     env:
       DOCKER_URL: antmedia/enterprise
@@ -56,8 +156,9 @@ jobs:
         run: |
           docker push ${{ env.IMAGE_NAME }}:${{ steps.read-version.outputs.version }}
           docker push ${{ env.IMAGE_NAME }}:latest
-  build:
-    needs: build-and-push
+
+  prepare-and-push:
+    needs: docker-build-and-push
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -86,8 +187,9 @@ jobs:
           git config --global user.name  ${{ github.actor }}
           git config --global user.email "murat@murat.ws"
           git push origin HEAD:${GITHUB_HEAD_REF}
-  test_local:
-    needs: build
+
+  local_tests:
+    needs: setup-runner
     runs-on: self-hosted 
     steps:
       - name: Checkout code
@@ -99,17 +201,14 @@ jobs:
         run: echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT  
       - name: Set up Minikube
         run: |
-          sudo apt-get update
-          sudo apt-get install -y conntrack
           curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
           sudo install minikube-linux-amd64 /usr/local/bin/minikube
-
-      - name: Stop/Start Minikube
+          
+      - name: Stop/Start Minikube - Docker
         run: |
-         sudo usermod -aG docker $USER
-         newgrp docker
-         sudo systemctl restart docker
-         minikube stop
+         echo $USER
+         sudo usermod -aG docker $USER && newgrp docker
+         sudo chown $USER /var/run/docker.sock
          minikube start --driver=docker
 
       - name: Install Helm
@@ -128,15 +227,17 @@ jobs:
         run: |
           ls -alh
           helm install antmedia antmedia-${{ steps.version.outputs.version }}.tgz --set origin=origin.antmedia.cloud --namespace antmedia --create-namespace
+          
       - name: Wait for containers to be ready
         run: |
           while true; do
-            STATUS=$(kubectl get pods -n antmedia -o jsonpath='{.items[0].status.containerStatuses[0].ready}')
+            STATUS=$(minikube kubectl get pods -- -n antmedia -o jsonpath='{.items[0].status.containerStatuses[0].ready}')
             if [ "$STATUS" == "true" ]; then
               break
             fi
             sleep 5
           done
+          
       - name: Get Minikube IP
         id: minikube_ip
         run: echo "::set-output name=ip::$(minikube ip)"
@@ -146,6 +247,7 @@ jobs:
           sleep 30
           status_code=$(curl -s -o /dev/null -w "%{http_code}" http://${{ steps.minikube_ip.outputs.ip }}:5080)
           echo "::set-output name=status_code::$status_code"
+          
       - name: Check curl result
         run: |
           if [[ "${{ steps.curl_result.outputs.status_code }}" -eq 200 ]]; then
@@ -154,26 +256,58 @@ jobs:
             echo "Ant Media Server is not accessible. HTTP status code: ${{ steps.curl_result.outputs.status_code }}"
             exit 1
           fi
+          
       - name: Download Sample MP4 Video
         run: |
           wget https://raw.githubusercontent.com/ant-media/Ant-Media-Server/master/src/test/resources/sample_MP4_480.mp4
           
       - name: Install FFmpeg and Check RTMP Stream
         run: |
-          pod_ip_address=$(kubectl get pods -l app=ant-media-origin -o wide -n antmedia -o custom-columns=IP:.status.podIP --no-headers)
+          pod_ip_address=$(minikube kubectl get pods -- -l app=ant-media-origin -o wide -n antmedia -o custom-columns=IP:.status.podIP --no-headers)
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           ffmpeg -re -i sample_MP4_480.mp4 -t 10 -c copy -f flv rtmp://"$pod_ip_address"/WebRTCAppEE/stream1
-          
-#      - name: Check Playback
-#        run: |
-#          ffplay "http://127.0.0.1/WebRTCAppEE/streams/stream1.m3u8"
-      - name: Uninstall Helm release
-        if: ${{ always() }}
-        run: helm uninstall antmedia -n antmedia
-      - name: Stop Minikube
-        if: ${{ always() }}
-        run: minikube stop
-      - name: Stop docker
-        if: ${{ always() }}
-        run: sudo systemctl stop docker
+        
+  clean:
+    needs: [setup-runner, local_tests]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+    - name: Delete runner
+      if: ${{ always() }}
+      run: |
+        echo "GITHUB_TOKEN=${GITHUB_TOKEN}" >> $GITHUB_ENV
+        RUNNER_ID=$(curl -s -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GITHUB_TOKEN" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          https://api.github.com/repos/$REPO/actions/runners | jq -r '.runners[0].id')
+        
+        echo "Deleting runner with ID: $RUNNER_ID"
+        curl -X DELETE -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GITHUB_TOKEN" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          https://api.github.com/repos/$REPO/actions/runners/$RUNNER_ID
+        
+        echo "Runner deleted successfully."
+    - name: Uninstall Helm release
+      if: ${{ always() }}
+      run: helm uninstall antmedia -n antmedia
+    - name: Stop Minikube
+      if: ${{ always() }}
+      run: minikube stop
+    - name: Delete CI Instance
+      if: ${{ always() }}
+      run: |
+        SERVER_ID="${{ needs.setup-runner.outputs.server_id }}"
+        echo "server id" $SERVER_ID
+        export OS_USERNAME=$OS_USERNAME
+        export OS_PASSWORD=$OS_PASSWORD
+        export OS_PROJECT_NAME=$OS_PROJECT_NAME
+        export OS_AUTH_URL=$OS_AUTH_URL
+        export OS_REGION_NAME=$OS_REGION_NAME
+        export OS_USER_DOMAIN_NAME
+        export OS_API_VERSION
+        export OS_TENANT_NAME
+        export OS_TENANT_ID
+        openstack server delete $SERVER_ID
