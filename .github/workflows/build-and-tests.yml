@@ -57,15 +57,6 @@ jobs:
     - name: Configure OpenStack CLI and Create Instance
       run: |
         echo "Setting up OpenStack CLI environment variables..."
-        export OS_USERNAME=$OS_USERNAME
-        export OS_PASSWORD=$OS_PASSWORD
-        export OS_PROJECT_NAME=$OS_PROJECT_NAME
-        export OS_AUTH_URL=$OS_AUTH_URL
-        export OS_REGION_NAME=$OS_REGION_NAME
-        export OS_USER_DOMAIN_NAME
-        export OS_API_VERSION
-        export OS_TENANT_NAME
-        export OS_TENANT_ID
         echo "GITHUB_TOKEN=${GITHUB_TOKEN}" >> $GITHUB_ENV
         sed -i "s/^GITHUB_TOKEN=.*$/GITHUB_TOKEN=${GITHUB_TOKEN}/" user_data.sh
         sed -i "s|RUNNER_ORG=\"[^\"]*\"|RUNNER_ORG=\"$REPO\"|g" user_data.sh
@@ -301,13 +292,4 @@ jobs:
       run: |
         SERVER_ID="${{ needs.setup-runner.outputs.server_id }}"
         echo "server id" $SERVER_ID
-        export OS_USERNAME=$OS_USERNAME
-        export OS_PASSWORD=$OS_PASSWORD
-        export OS_PROJECT_NAME=$OS_PROJECT_NAME
-        export OS_AUTH_URL=$OS_AUTH_URL
-        export OS_REGION_NAME=$OS_REGION_NAME
-        export OS_USER_DOMAIN_NAME
-        export OS_API_VERSION
-        export OS_TENANT_NAME
-        export OS_TENANT_ID
         openstack server delete $SERVER_ID
