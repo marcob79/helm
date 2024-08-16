@@ -57,9 +57,17 @@ spec:
             port: 5080
           initialDelaySeconds: 30
           periodSeconds: 10
+        volumeMounts:
+        - mountPath: /tmp
+          name: temp-volume
         resources:
         {{ "requests:" | indent 2 }}
         {{ "cpu:" | indent 4 }} {{ .Values.EdgeCpu }}
         {{- end }}
+      volumes:
+      - hostPath:
+          path: /temp-data
+          type: DirectoryOrCreate
+        name: temp-volume
 
 {{end}}
