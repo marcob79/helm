@@ -108,7 +108,7 @@ jobs:
         exit 1
 
   prepare-and-push:
-    needs: docker-build-and-push
+    needs: setup-runner
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -139,7 +139,7 @@ jobs:
           git push origin HEAD:${GITHUB_HEAD_REF}
 
   local_tests:
-    needs: [setup-runner, docker-build-and-push, prepare-and-push]
+    needs: [setup-runner, prepare-and-push]
     runs-on: self-hosted 
     steps:
       - name: Checkout code
