@@ -1,4 +1,4 @@
-name: Ant Media Server Docker Image Build/Push and Development Test
+name: Ant Media Server Development Test
 
 on:
   pull_request:
@@ -219,7 +219,7 @@ jobs:
           ffmpeg -re -i sample_MP4_480.mp4 -t 10 -c copy -f flv rtmp://"$pod_ip_address"/WebRTCAppEE/stream1
         
   clean:
-    needs: [setup-runner, local_tests]
+    #needs: [setup-runner, local_tests]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
