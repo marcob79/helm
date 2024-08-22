@@ -185,6 +185,7 @@ jobs:
           
       - name: Wait for containers to be ready
         run: |
+          whoami
           while true; do
             STATUS=$(minikube kubectl get pods -- -n antmedia -o jsonpath='{.items[0].status.containerStatuses[0].ready}')
             if [ "$STATUS" == "true" ]; then
