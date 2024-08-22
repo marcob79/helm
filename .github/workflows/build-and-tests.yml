@@ -1,4 +1,4 @@
-name: Ant Media Server Docker Image Build/Push and Development Test
+name: Ant Media Server Development Test
 
 on:
   pull_request:
@@ -82,6 +82,10 @@ jobs:
     - name: Check runner status and wait if offline
       id: check_status
       run: |
+        MAX_WAIT=300
+        WAIT_INTERVAL=10
+        ELAPSED_TIME=0
+    
         RUNNER_STATUS=$(curl -s -L \
           -H "Accept: application/vnd.github+json" \
           -H "Authorization: Bearer $GITHUB_TOKEN" \
@@ -89,9 +93,10 @@ jobs:
           https://api.github.com/repos/$REPO/actions/runners | jq -r '.runners[0].status')
         echo "Initial Runner status is: $RUNNER_STATUS"
     
-        while [[ "$RUNNER_STATUS" != "online" ]]; do
-          echo "Runner is $RUNNER_STATUS. Waiting for 10 seconds..."
-          sleep 10
+        while [[ "$RUNNER_STATUS" != "online" && "$ELAPSED_TIME" -lt "$MAX_WAIT" ]]; do
+          echo "Runner is $RUNNER_STATUS. Waiting for $WAIT_INTERVAL seconds..."
+          sleep $WAIT_INTERVAL
+          ELAPSED_TIME=$((ELAPSED_TIME + WAIT_INTERVAL))
           RUNNER_STATUS=$(curl -s -L \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
@@ -107,49 +112,8 @@ jobs:
       run: |
         exit 1
 
-  docker-build-and-push:
-    runs-on: ubuntu-latest
-    env:
-      DOCKER_URL: antmedia/enterprise
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Download latest.zip
-        run: wget --quiet ${{ secrets.LATEST_URL }}
-
-      - name: Download Dockerfile
-        run: wget --quiet https://raw.githubusercontent.com/ant-media/Scripts/master/docker/Dockerfile_Process -O Dockerfile
-
-      - name: Read version from VERSION file
-        id: read-version
-        run: echo "::set-output name=version::$(cat VERSION)"
-
-      - name: Set image name
-        id: set-image-name
-        run: echo "IMAGE_NAME=${{ env.DOCKER_URL }}" >> $GITHUB_ENV
-
-      - name: Build Docker image
-        run: docker build --network=host -t antmediaserver:${{ steps.read-version.outputs.version }} --build-arg AntMediaServer=latest.zip .
-
-      - name: Tag Docker image
-        run: |
-          docker tag $(docker images --format "{{.ID}}" --filter "reference=antmediaserver:${{ steps.read-version.outputs.version }}") ${{ env.IMAGE_NAME }}:${{ steps.read-version.outputs.version }}
-          docker tag $(docker images --format "{{.ID}}" --filter "reference=antmediaserver:${{ steps.read-version.outputs.version }}") ${{ env.IMAGE_NAME }}:latest
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v1
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Push Docker image
-        run: |
-          docker push ${{ env.IMAGE_NAME }}:${{ steps.read-version.outputs.version }}
-          docker push ${{ env.IMAGE_NAME }}:latest
-
   prepare-and-push:
-    needs: docker-build-and-push
+    needs: setup-runner
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -180,7 +144,7 @@ jobs:
           git push origin HEAD:${GITHUB_HEAD_REF}
 
   local_tests:
-    needs: [setup-runner, docker-build-and-push, prepare-and-push]
+    needs: [setup-runner, prepare-and-push]
     runs-on: self-hosted 
     steps:
       - name: Checkout code
@@ -221,6 +185,7 @@ jobs:
           
       - name: Wait for containers to be ready
         run: |
+          whoami
           while true; do
             STATUS=$(minikube kubectl get pods -- -n antmedia -o jsonpath='{.items[0].status.containerStatuses[0].ready}')
             if [ "$STATUS" == "true" ]; then
@@ -260,7 +225,8 @@ jobs:
           ffmpeg -re -i sample_MP4_480.mp4 -t 10 -c copy -f flv rtmp://"$pod_ip_address"/WebRTCAppEE/stream1
         
   clean:
-    needs: [setup-runner, local_tests]
+    if: ${{ always() }}
+    needs: [setup-runner, local_tests, prepare-and-push]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
