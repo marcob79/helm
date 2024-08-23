@@ -194,8 +194,9 @@ jobs:
           helm install antmedia antmedia/antmedia --set origin=origin.antmedia.cloud --namespace antmedia --create-namespace
       - name: Wait for containers to be ready
         run: |
+          whoami
           while true; do
-            STATUS=$(kubectl get pods -n antmedia -o jsonpath='{.items[0].status.containerStatuses[0].ready}')
+            STATUS=$(minikube kubectl get pods -- -n antmedia -o jsonpath='{.items[0].status.containerStatuses[0].ready}')
             if [ "$STATUS" == "true" ]; then
               break
             fi
@@ -244,7 +245,8 @@ jobs:
               antmedia-${{ steps.version.outputs.version }}.tgz
 
   clean:
-    needs: [setup-runner, local_tests]
+    if: ${{ always() }}
+    needs: [setup-runner, local_tests, docker-build-and-push]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
