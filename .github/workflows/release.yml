@@ -156,7 +156,7 @@ jobs:
           docker push ${{ env.IMAGE_NAME }}:latest
 
   local_tests:
-    needs: setup-runner
+    needs: [setup-runner, docker-build-and-push]
     runs-on: self-hosted 
     steps:
       - name: Checkout code
