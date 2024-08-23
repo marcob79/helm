@@ -112,6 +112,47 @@ jobs:
       run: |
         exit 1
 
+  docker-build-and-push:
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_URL: antmedia/enterprise
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Download latest.zip
+        run: wget --quiet ${{ secrets.LATEST_URL }}
+
+      - name: Download Dockerfile
+        run: wget --quiet https://raw.githubusercontent.com/ant-media/Scripts/master/docker/Dockerfile_Process -O Dockerfile
+
+      - name: Read version from VERSION file
+        id: read-version
+        run: echo "::set-output name=version::$(cat VERSION)"
+
+      - name: Set image name
+        id: set-image-name
+        run: echo "IMAGE_NAME=${{ env.DOCKER_URL }}" >> $GITHUB_ENV
+
+      - name: Build Docker image
+        run: docker build --network=host -t antmediaserver:${{ steps.read-version.outputs.version }} --build-arg AntMediaServer=latest.zip .
+
+      - name: Tag Docker image
+        run: |
+          docker tag $(docker images --format "{{.ID}}" --filter "reference=antmediaserver:${{ steps.read-version.outputs.version }}") ${{ env.DEV_IMAGE_NAME }}:${{ steps.read-version.outputs.version }}
+          docker tag $(docker images --format "{{.ID}}" --filter "reference=antmediaserver:${{ steps.read-version.outputs.version }}") ${{ env.DEV_IMAGE_NAME }}:latest
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.DEV_IMAGE_NAME }}:${{ steps.read-version.outputs.version }}
+          docker push ${{ env.DEV_IMAGE_NAME }}:latest
+
   prepare-and-push:
     needs: setup-runner
     runs-on: ubuntu-latest
@@ -144,7 +185,7 @@ jobs:
           git push origin HEAD:${GITHUB_HEAD_REF}
 
   local_tests:
-    needs: [setup-runner, prepare-and-push]
+    needs: [setup-runner, prepare-and-push, docker-build-and-push]
     runs-on: self-hosted 
     steps:
       - name: Checkout code
@@ -181,7 +222,7 @@ jobs:
       - name: Deploy Helm chart to Minikube
         run: |
           ls -alh
-          helm install antmedia antmedia-${{ steps.version.outputs.version }}.tgz --set origin=origin.antmedia.cloud --namespace antmedia --create-namespace
+          helm install antmedia antmedia-${{ steps.version.outputs.version }}.tgz --set origin=origin.antmedia.cloud --set image.repository="${{ env.DEV_IMAGE_NAME }}" --set image.tag="latest" --namespace antmedia --create-namespace
           
       - name: Wait for containers to be ready
         run: |
