@@ -229,8 +229,7 @@ jobs:
           ls -alh
           echo "${{ env.IMAGE_NAME }}"
           echo "${{ needs.docker-build-and-push.outputs.image_name }}"
-          echo "helm install antmedia antmedia-${{ steps.version.outputs.version }}.tgz --set origin=origin.antmedia.cloud --set image.repository="${{ needs.docker-build-and-push.outputs.image_name }}" --set image.tag="latest" --namespace antmedia --create-namespace"
-          helm install antmedia antmedia-${{ steps.version.outputs.version }}.tgz --set origin=origin.antmedia.cloud --set image.repository="${{ needs.docker-build-and-push.outputs.image_name }}" --set image.tag="latest" --namespace antmedia --create-namespace
+          helm install antmedia antmedia-${{ steps.version.outputs.version }}.tgz --set origin=origin.antmedia.cloud --set image.repository="antmedia/development" --set image.tag="latest" --namespace antmedia --create-namespace
           
       - name: Wait for containers to be ready
         run: |
